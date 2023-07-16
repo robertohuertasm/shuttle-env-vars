@@ -1,0 +1,36 @@
+[tasks.udeps]
+install_crate = "udeps"
+toolchain = "nightly"
+command = "cargo"
+args = ["udeps", "--all-targets"]
+
+[tasks.format]
+clear = true
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+
+[tasks.clippy-z]
+clear = true
+install_crate = "cargo-clippy"
+toolchain = "nightly"
+command = "cargo"
+args = ["clippy", "-Z", "unstable-options"]
+
+[tasks.clippy]
+install_crate = "cargo-clippy"
+command = "cargo"
+args = ["clippy"]
+
+[tasks.clippy-pedantic]
+install_crate = "cargo-clippy"
+command = "cargo"
+args = ["clippy", "--all", "--", "-D", "clippy::pedantic", "-D", "clippy::nursery", "-D", "warnings", "-A", "clippy::missing-errors-doc"]
+
+[tasks.all]
+dependencies = [
+    "check",
+    "format",
+    "clippy",
+    "test"
+]
