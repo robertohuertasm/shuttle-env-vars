@@ -22,7 +22,7 @@ Add the following to your `Cargo.toml`:
 shuttle-env-vars = "0.21.0"
 ```
 
-Then create a `.env` file in your the folder you want to use. Note that the name of the file can be anything.:
+Then create a `.env` file in the folder you want to use. Note that the name of the file can be anything.:
 
 Once you have created you `.env` file you have to add the following to the `main` function:
 
@@ -44,7 +44,7 @@ async fn main(
 ) -> __ { ... }
 ```
 
-> When executing locally, both `folder` and `env_prod` will be ignored and only `env_local` will be used. It's **important** to note that `env_local` is a path to a file, not a file name.
+ When executing locally, both `folder` and `env_prod` will be ignored and only `env_local` will be used. It's **important** to note that `env_local` is a path to a file, not a file name.
 
 ## Ignoring your .env files
 
