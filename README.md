@@ -29,9 +29,14 @@ Once you have created you `.env` file you have to add the following argument to 
 ```rust
 #[shuttle_runtime::main]
 async fn main(
-    #[shuttle_env_vars::EnvVars(folder = "name_of_your_folder", env_prod = "name_of_your_env_file")] _env_folder_¡: PathBuf,
+    #[shuttle_env_vars::EnvVars(folder = "name_of_your_folder", env_prod = "name_of_your_env_file")] _env_folder: PathBuf,
 ) -> __ { ... }
 ```
+
+All the environment variables defined in your `.env` file will be automatically set.
+
+Note that we're using `PathBuf` as the type of the argument. This is because of a current restriction in Shuttle when dealing with custom resources. You can ignore this argument if you don't plan to do anything. Otherwise, it will return the path to the folder containing your `.env` files if any.
+
 
 ### Local mode
 
