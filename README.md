@@ -22,9 +22,9 @@ Add the following to your `Cargo.toml`:
 shuttle-env-vars = "0.21.0"
 ```
 
-Then create a `.env` file in the folder you want to use. Note that the name of the file can be anything.:
+Then create a `.env` file in the folder you want to use. Note that the name of the file can be anything.
 
-Once you have created you `.env` file you have to add the following to the `main` function:
+Once you have created you `.env` file you have to add the following argument to your Shuttle `main` function:
 
 ```rust
 #[shuttle_runtime::main]
@@ -46,11 +46,20 @@ async fn main(
 
  When executing locally, both `folder` and `env_prod` will be ignored and only `env_local` will be used. It's **important** to note that `env_local` is a path to a file, not a file name.
 
+
+ ### Defaults
+
+ All the arguments are optional:
+
+ - *folder*: This is the folder containing your `.env` files. It will default to `.env`.
+ - *env_prod*: Filename of the `.env` file you will use in production. It will default to `.env`.
+ - *env_local*: File path of the `.env` file you will use in local mode. This is an optional parameter and it defaults to `None`.
+
 ## Ignoring your .env files
 
 Typically, the `.env` files are not committed to your repository and are ignored.
 
-That's a good practice but will won't work for Shuttle it won't upload the files that are present in the `.gitignore` file.
+That's a good practice, but won't work for Shuttle as it won't upload the files that are present in the `.gitignore` file.
 
 To overcome this, you can take a look at the `Caveats` section in [Shuttle Static Folder](https://docs.shuttle.rs/resources/shuttle-static-folder#caveats) because that's precisely what we need to do.
 
