@@ -1,11 +1,11 @@
 [package]
 name = "shuttle-env-vars"
-version = "0.21.0"
+version = "0.21.1"
 edition = "2021"
 authors = ["Roberto Huertas <roberto.huertas@outlook.com>"]
 description = "Use .env files to set environment variables in your Shuttle services"
 license = "MIT"
-repository = "https://github.com/robertohuertas/shuttle-env-vars"
+repository = "https://github.com/robertohuertasm/shuttle-env-vars"
 categories = ["web-programming", "configuration"]
 keywords = ["shuttle", "dotenv", "env", "env-vars"]
 
