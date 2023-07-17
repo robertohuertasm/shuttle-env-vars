@@ -1,7 +1,7 @@
 # shuttle-env-vars
 
 
-[![license](https://img.shields.io/crates/l/shuttle-env-vars?style=for-the-badge)](https://github.com/robertohuertasm/log-tracing-layer/blob/master/LICENSE)
+[![license](https://img.shields.io/crates/l/shuttle-env-vars?style=for-the-badge)](https://github.com/robertohuertasm/shuttle-env-vars/blob/master/LICENSE)
 [![crates.io](https://img.shields.io/crates/v/shuttle-env-vars?style=for-the-badge)](https://crates.io/crates/shuttle-env-vars)
 [![docs.rs](https://img.shields.io/docsrs/shuttle-env-vars?style=for-the-badge)](https://docs.rs/shuttle-env-vars)
 
