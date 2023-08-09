@@ -47,6 +47,7 @@ impl<'a> EnvVars<'a> {
         );
 
         if env_path.as_os_str().is_empty() {
+            tracing::info!(?env_path, "Is empty!");
             return Ok("".into());
         }
 
@@ -100,6 +101,7 @@ impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
             .take()
             .expect("Static Provider is missing");
         let output_dir = static_provider.output(factory).await?;
+        tracing::info!(?output_dir, "Static provider returned");
         self.load_env_vars(Some(&output_dir))?;
         Ok(output_dir)
     }
