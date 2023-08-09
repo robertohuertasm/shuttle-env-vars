@@ -1,6 +1,6 @@
 [package]
 name = "shuttle-env-vars"
-version = "0.23.2"
+version = "0.23.3"
 edition = "2021"
 authors = ["Roberto Huertas <roberto.huertas@outlook.com>"]
 description = "Use .env files to set environment variables in your Shuttle services"
@@ -21,6 +21,7 @@ shuttle-runtime = "0.23.0"
 dotenvy = "0.15"
 serde = "1.0"
 tracing = "0.1"
+rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3.7"

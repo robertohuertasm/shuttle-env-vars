@@ -1,3 +1,4 @@
+use rand::Rng;
 use serde::Serialize;
 use shuttle_runtime::async_trait;
 use shuttle_service::{error::CustomError, Factory, ResourceBuilder, Type};
@@ -14,7 +15,14 @@ pub struct EnvVars<'a> {
     env_prod: &'a str,
     /// The name of the file to use in local.
     env_local: Option<&'a str>,
+    /// The static provider to use.
     static_provider: Option<shuttle_static_folder::StaticFolder<'a>>,
+    /// The path to be use as config.
+    /// This should use a random string to avoid caching.
+    /// By doing this, we will be able to always load the env vars.
+    /// Note that this is temporary. Ideally, we should be able to change the
+    /// Output, but due to a current limitation we are using this workaround.
+    config: String,
 }
 
 #[derive(Debug)]
@@ -24,6 +32,7 @@ impl<'a> EnvVars<'a> {
     #[must_use]
     pub fn folder(mut self, folder: &'a str) -> Self {
         self.folder = folder;
+        self.config = Self::get_config(folder);
         self.static_provider = self.static_provider.map(|p| p.folder(folder));
         self
     }
@@ -58,26 +67,34 @@ impl<'a> EnvVars<'a> {
             EnvError(e)
         })
     }
+
+    fn get_config(folder: &'a str) -> String {
+        let mut rng = rand::thread_rng();
+        let y: f64 = rng.gen(); // generates a float between 0 and 1
+        let result = format!("{} - {y}", folder);
+        result
+    }
 }
 
 #[async_trait]
 impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
     const TYPE: Type = Type::StaticFolder;
-    type Config = &'a str;
+    type Config = String;
     type Output = PathBuf;
 
     fn new() -> Self {
         let static_provider = shuttle_static_folder::StaticFolder::new().folder(DEFAULT_FOLDER);
         Self {
             folder: DEFAULT_FOLDER,
+            config: DEFAULT_FOLDER.to_string(),
             env_prod: DEFAULT_ENV_PROD,
             env_local: None,
             static_provider: Some(static_provider),
         }
     }
 
-    fn config(&self) -> &&'a str {
-        &self.folder
+    fn config(&self) -> &String {
+        &self.config
     }
 
     async fn output(
