@@ -84,6 +84,8 @@ impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
         mut self,
         factory: &mut dyn Factory,
     ) -> Result<Self::Output, shuttle_service::Error> {
+        tracing::info!("Calling output function");
+
         // is production?
         let env = factory.get_environment();
         let is_production = match env {
@@ -91,11 +93,14 @@ impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
             shuttle_service::Environment::Local => false,
         };
 
+        tracing::debug!(?is_production, "Is production?");
+
         if !is_production {
+            tracing::info!("Not in production, loading env vars from file");
             return Ok(self.load_env_vars(None)?);
         }
 
-        tracing::trace!("Calling static provider");
+        tracing::trace!("Calling Static provider");
         let static_provider = self
             .static_provider
             .take()
