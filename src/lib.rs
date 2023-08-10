@@ -1,5 +1,4 @@
-use rand::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use shuttle_runtime::async_trait;
 use shuttle_service::{error::CustomError, Factory, ResourceBuilder, Type};
 use std::path::PathBuf;
@@ -17,12 +16,6 @@ pub struct EnvVars<'a> {
     env_local: Option<&'a str>,
     /// The static provider to use.
     static_provider: Option<shuttle_static_folder::StaticFolder<'a>>,
-    /// The path to be use as config.
-    /// This should use a random string to avoid caching.
-    /// By doing this, we will be able to always load the env vars.
-    /// Note that this is temporary. Ideally, we should be able to change the
-    /// Output, but due to a current limitation we are using this workaround.
-    config: String,
 }
 
 #[derive(Debug)]
@@ -32,7 +25,6 @@ impl<'a> EnvVars<'a> {
     #[must_use]
     pub fn folder(mut self, folder: &'a str) -> Self {
         self.folder = folder;
-        self.config = Self::get_config(folder);
         self.static_provider = self.static_provider.map(|p| p.folder(folder));
         self
     }
@@ -49,12 +41,14 @@ impl<'a> EnvVars<'a> {
         self
     }
 
-    pub fn load_env_vars(&self, output_dir: Option<&PathBuf>) -> Result<PathBuf, EnvError> {
-        let env_path = output_dir.map_or_else(
+    pub fn env_path(&self, output_dir: Option<&PathBuf>) -> PathBuf {
+        output_dir.map_or_else(
             || self.env_local.unwrap_or("").into(),
             |dir| dir.join(self.env_prod),
-        );
+        )
+    }
 
+    pub fn load_env_vars(env_path: &PathBuf) -> Result<PathBuf, EnvError> {
         if env_path.as_os_str().is_empty() {
             tracing::info!(?env_path, "Is empty!");
             return Ok("".into());
@@ -67,34 +61,38 @@ impl<'a> EnvVars<'a> {
             EnvError(e)
         })
     }
+}
 
-    fn get_config(folder: &'a str) -> String {
-        let mut rng = rand::thread_rng();
-        let y: f64 = rng.gen(); // generates a float between 0 and 1
-        let result = format!("{} - {y}", folder);
-        result
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ResourceOutput {
+    pub folder: PathBuf,
+    env_path: PathBuf,
+}
+
+impl ResourceOutput {
+    pub fn new(folder: PathBuf, env_path: PathBuf) -> Self {
+        Self { folder, env_path }
     }
 }
 
 #[async_trait]
-impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
+impl<'a> ResourceBuilder<ResourceOutput> for EnvVars<'a> {
     const TYPE: Type = Type::StaticFolder;
-    type Config = String;
-    type Output = PathBuf;
+    type Config = &'a str;
+    type Output = ResourceOutput;
 
     fn new() -> Self {
         let static_provider = shuttle_static_folder::StaticFolder::new().folder(DEFAULT_FOLDER);
         Self {
             folder: DEFAULT_FOLDER,
-            config: DEFAULT_FOLDER.to_string(),
             env_prod: DEFAULT_ENV_PROD,
             env_local: None,
             static_provider: Some(static_provider),
         }
     }
 
-    fn config(&self) -> &String {
-        &self.config
+    fn config(&self) -> &&'a str {
+        &self.folder
     }
 
     async fn output(
@@ -114,7 +112,8 @@ impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
 
         if !is_production {
             tracing::info!("Not in production, loading env vars from file");
-            return Ok(self.load_env_vars(None)?);
+            let env_path = self.env_path(None);
+            return Ok(ResourceOutput::new(env_path.clone(), env_path));
         }
 
         tracing::trace!("Calling Static provider");
@@ -124,11 +123,13 @@ impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
             .expect("Static Provider is missing");
         let output_dir = static_provider.output(factory).await?;
         tracing::info!(?output_dir, "Static provider returned");
-        self.load_env_vars(Some(&output_dir))?;
-        Ok(output_dir)
+        let env_path = self.env_path(Some(&output_dir));
+        Ok(ResourceOutput::new(output_dir, env_path))
     }
 
-    async fn build(build_data: &Self::Output) -> Result<PathBuf, shuttle_service::Error> {
+    async fn build(build_data: &Self::Output) -> Result<Self::Output, shuttle_service::Error> {
+        tracing::info!("Build function called with {:?}", build_data.env_path);
+        Self::load_env_vars(&build_data.env_path)?;
         Ok(build_data.clone())
     }
 }
@@ -237,7 +238,7 @@ mod tests {
     async fn copies_folder_if_production() {
         let mut factory = MockFactory::new(true);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR0=1";
 
         let input_file_path = factory
             .build_path()
@@ -258,7 +259,7 @@ mod tests {
         let actual_folder = env_folder.output(&mut factory).await.unwrap();
 
         assert_eq!(
-            actual_folder,
+            actual_folder.folder,
             factory.storage_path().join(DEFAULT_FOLDER),
             "expect path to the env folder to be in the storage folder"
         );
@@ -277,7 +278,7 @@ mod tests {
     async fn copies_folder_if_production_with_custom_folder_and_prod_file() {
         let mut factory = MockFactory::new(true);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR1=1";
         const ENV_FOLDER: &str = "custom_env_folder";
         const ENV_PROD_FILE: &str = ".env-prod";
 
@@ -291,10 +292,10 @@ mod tests {
 
         // Call plugin
         let env_folder = EnvVars::new().folder(ENV_FOLDER).env_prod(ENV_PROD_FILE);
-        let actual_folder = env_folder.output(&mut factory).await.unwrap();
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
 
         assert_eq!(
-            actual_folder,
+            resource_output.folder,
             factory.storage_path().join(ENV_FOLDER),
             "expect path to the env folder to be in the storage folder"
         );
@@ -327,20 +328,23 @@ mod tests {
         let mut factory = MockFactory::new(false);
         let env_folder = EnvVars::new();
 
-        let folder = env_folder
+        let resource_output = env_folder
             .folder("/etc")
             .output(&mut factory)
             .await
             .unwrap();
 
-        assert!(folder.as_os_str().is_empty(), "should return empty path");
+        assert!(
+            resource_output.folder.as_os_str().is_empty(),
+            "should return empty path"
+        );
     }
 
     #[tokio::test]
     async fn folder_is_ignored_if_local_and_local_file_absolute() {
         let mut factory = MockFactory::new(false);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR2=1";
         const ENV_FOLDER: &str = "../other";
         const ENV_LOCAL_FILE: &str = ".env-dev";
 
@@ -349,17 +353,22 @@ mod tests {
         fs::write(&local_env_path, CONTENT).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
-
-        let folder = env_folder
+        let env_folder = EnvVars::new()
             .folder("/etc")
-            .env_local(local_env_path.to_str().unwrap())
-            .output(&mut factory)
-            .await
-            .unwrap();
+            .env_local(local_env_path.to_str().unwrap());
 
-        assert_eq!(folder, local_env_path, "should return local env path");
-        assert_eq!(std::env::var("MY_VAR").unwrap(), "1", "should load env var");
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
+        let _ = EnvVars::build(&resource_output).await;
+
+        assert_eq!(
+            resource_output.folder, local_env_path,
+            "should return local env path"
+        );
+        assert_eq!(
+            std::env::var("MY_VAR2").unwrap(),
+            "1",
+            "should load env var"
+        );
     }
 
     #[tokio::test]
@@ -392,20 +401,23 @@ mod tests {
         // Call plugin
         let env_folder = EnvVars::new();
 
-        let folder = env_folder
+        let resource_output = env_folder
             .folder("../escape")
             .output(&mut factory)
             .await
             .unwrap();
 
-        assert!(folder.as_os_str().is_empty(), "should return empty path");
+        assert!(
+            resource_output.folder.as_os_str().is_empty(),
+            "should return empty path"
+        );
     }
 
     #[tokio::test]
     async fn folder_is_ignored_if_local_and_local_file() {
         let mut factory = MockFactory::new(false);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR3=1";
         const ENV_FOLDER: &str = "../other";
         const ENV_LOCAL_FILE: &str = ".env-dev";
 
@@ -418,17 +430,22 @@ mod tests {
         fs::write(&local_env_path, CONTENT).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
-
-        let folder = env_folder
+        let env_folder = EnvVars::new()
             .folder("../escape")
-            .env_local(local_env_path.to_str().unwrap())
-            .output(&mut factory)
-            .await
-            .unwrap();
+            .env_local(local_env_path.to_str().unwrap());
 
-        assert_eq!(folder, local_env_path, "should return local env path");
-        assert_eq!(std::env::var("MY_VAR").unwrap(), "1", "should load env var");
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
+        let _ = EnvVars::build(&resource_output).await;
+
+        assert_eq!(
+            resource_output.folder, local_env_path,
+            "should return local env path"
+        );
+        assert_eq!(
+            std::env::var("MY_VAR3").unwrap(),
+            "1",
+            "should load env var"
+        );
     }
 
     #[tokio::test]
@@ -436,7 +453,7 @@ mod tests {
     async fn panics_if_local_and_local_file_is_not_correct() {
         let mut factory = MockFactory::new(false);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR4=1";
         const ENV_FOLDER: &str = "../other";
         const ENV_LOCAL_FILE: &str = ".env-dev";
 
@@ -445,21 +462,17 @@ mod tests {
         fs::write(&local_env_path, CONTENT).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
+        let env_folder = EnvVars::new().folder("random").env_local("random/.env-dev");
 
-        let _ = env_folder
-            .folder("random")
-            .env_local("random/.env-dev")
-            .output(&mut factory)
-            .await
-            .unwrap();
+        let output = env_folder.output(&mut factory).await.unwrap();
+        let _ = EnvVars::build(&output).await.unwrap();
     }
 
     #[tokio::test]
     async fn works_if_folder_and_prod_file_custom() {
         let mut factory = MockFactory::new(true);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR5=1";
         const ENV_FOLDER: &str = "other";
         const ENV_PROD_FILE: &str = ".env-prod";
 
@@ -468,29 +481,29 @@ mod tests {
         fs::write(&env_path, CONTENT).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
+        let env_folder = EnvVars::new().folder(ENV_FOLDER).env_prod(ENV_PROD_FILE);
 
-        let folder = env_folder
-            .folder(ENV_FOLDER)
-            .env_prod(ENV_PROD_FILE)
-            .output(&mut factory)
-            .await
-            .unwrap();
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
+        let _ = EnvVars::build(&resource_output).await;
 
         let expected_output_folder = factory.storage_path().join(ENV_FOLDER);
 
         assert_eq!(
-            folder, expected_output_folder,
+            resource_output.folder, expected_output_folder,
             "should return storage folder"
         );
-        assert_eq!(std::env::var("MY_VAR").unwrap(), "1", "should load env var");
+        assert_eq!(
+            std::env::var("MY_VAR5").unwrap(),
+            "1",
+            "should load env var"
+        );
     }
 
     #[tokio::test]
     async fn works_if_folder_and_prod_file_default() {
         let mut factory = MockFactory::new(true);
 
-        const CONTENT: &str = "MY_VAR=1";
+        const CONTENT: &str = "MY_VAR6=1";
 
         let env_path = factory
             .build_path()
@@ -500,22 +513,25 @@ mod tests {
         fs::write(&env_path, CONTENT).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
-
-        let folder = env_folder
+        let env_folder = EnvVars::new()
             .folder(DEFAULT_FOLDER)
-            .env_prod(DEFAULT_ENV_PROD)
-            .output(&mut factory)
-            .await
-            .unwrap();
+            .env_prod(DEFAULT_ENV_PROD);
+
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
+
+        let _ = EnvVars::build(&resource_output).await;
 
         let expected_output_folder = factory.storage_path().join(DEFAULT_FOLDER);
 
         assert_eq!(
-            folder, expected_output_folder,
+            resource_output.folder, expected_output_folder,
             "should return storage folder"
         );
-        assert_eq!(std::env::var("MY_VAR").unwrap(), "1", "should load env var");
+        assert_eq!(
+            std::env::var("MY_VAR6").unwrap(),
+            "1",
+            "should load env var"
+        );
     }
 
     #[tokio::test]
@@ -530,13 +546,11 @@ mod tests {
         fs::create_dir_all(&env_path.parent().unwrap()).unwrap();
 
         // Call plugin
-        let env_folder = EnvVars::new();
-
-        let _ = env_folder
+        let env_folder = EnvVars::new()
             .folder(DEFAULT_FOLDER)
-            .env_prod(DEFAULT_ENV_PROD)
-            .output(&mut factory)
-            .await
-            .unwrap();
+            .env_prod(DEFAULT_ENV_PROD);
+
+        let output = env_folder.output(&mut factory).await.unwrap();
+        let _ = EnvVars::build(&output).await.unwrap();
     }
 }
