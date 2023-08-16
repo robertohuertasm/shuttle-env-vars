@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use shuttle_runtime::async_trait;
 use shuttle_service::{error::CustomError, Factory, ResourceBuilder, Type};
+use shuttle_static_folder::{Paths, StaticFolder};
 use std::path::PathBuf;
 
 const DEFAULT_FOLDER: &str = ".env";
@@ -41,42 +42,54 @@ impl<'a> EnvVars<'a> {
         self
     }
 
-    pub fn env_path(&self, output_dir: Option<&PathBuf>) -> PathBuf {
+    pub fn env_file_path(&self, output_dir: Option<&PathBuf>) -> PathBuf {
         output_dir.map_or_else(
             || self.env_local.unwrap_or("").into(),
             |dir| dir.join(self.env_prod),
         )
     }
 
-    pub fn load_env_vars(env_path: &PathBuf) -> Result<PathBuf, EnvError> {
-        if env_path.as_os_str().is_empty() {
-            tracing::info!(?env_path, "Is empty!");
+    pub fn load_env_vars(env_file_path: &PathBuf) -> Result<PathBuf, EnvError> {
+        if env_file_path.as_os_str().is_empty() {
+            tracing::info!(?env_file_path, "Is empty!");
             return Ok("".into());
         }
 
-        tracing::info!(?env_path, "Loading env vars from file");
+        tracing::info!(?env_file_path, "Loading env vars from file");
 
-        dotenvy::from_filename(env_path).map_err(|e| {
+        dotenvy::from_filename(env_file_path).map_err(|e| {
             tracing::error!(?e, "Failed to load env vars");
             EnvError(e)
         })
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct ResourceOutput {
-    pub folder: PathBuf,
-    env_path: PathBuf,
+    env_prod: String,
+    env_local: String,
+    paths: Option<Paths>,
 }
 
 impl ResourceOutput {
-    pub fn new(folder: PathBuf, env_path: PathBuf) -> Self {
-        Self { folder, env_path }
+    pub fn new(paths: Option<Paths>, env_local: Option<&str>, env_prod: &str) -> Self {
+        Self {
+            paths,
+            env_local: env_local.unwrap_or("").to_string(),
+            env_prod: env_prod.to_string(),
+        }
+    }
+
+    pub fn env_file_path(&self, output_dir: Option<&PathBuf>) -> PathBuf {
+        output_dir.map_or_else(
+            || self.env_local.clone().into(),
+            |dir| dir.join(self.env_prod.clone()),
+        )
     }
 }
 
 #[async_trait]
-impl<'a> ResourceBuilder<ResourceOutput> for EnvVars<'a> {
+impl<'a> ResourceBuilder<PathBuf> for EnvVars<'a> {
     const TYPE: Type = Type::StaticFolder;
     type Config = &'a str;
     type Output = ResourceOutput;
@@ -112,8 +125,8 @@ impl<'a> ResourceBuilder<ResourceOutput> for EnvVars<'a> {
 
         if !is_production {
             tracing::info!("Not in production, loading env vars from file");
-            let env_path = self.env_path(None);
-            return Ok(ResourceOutput::new(env_path.clone(), env_path));
+            let resource = ResourceOutput::new(None, self.env_local, self.env_prod);
+            return Ok(resource);
         }
 
         tracing::trace!("Calling Static provider");
@@ -121,16 +134,31 @@ impl<'a> ResourceBuilder<ResourceOutput> for EnvVars<'a> {
             .static_provider
             .take()
             .expect("Static Provider is missing");
-        let output_dir = static_provider.output(factory).await?;
-        tracing::info!(?output_dir, "Static provider returned");
-        let env_path = self.env_path(Some(&output_dir));
-        Ok(ResourceOutput::new(output_dir, env_path))
+
+        tracing::trace!("Getting paths");
+        let paths = static_provider.output(factory).await?;
+        tracing::info!("Static provider returned");
+
+        let resource = ResourceOutput::new(Some(paths), self.env_local, self.env_prod);
+        Ok(resource)
     }
 
-    async fn build(build_data: &Self::Output) -> Result<Self::Output, shuttle_service::Error> {
-        tracing::info!("Build function called with {:?}", build_data.env_path);
-        Self::load_env_vars(&build_data.env_path)?;
-        Ok(build_data.clone())
+    async fn build(build_data: &Self::Output) -> Result<PathBuf, shuttle_service::Error> {
+        if let Some(paths) = build_data.paths.as_ref() {
+            // production environment
+            tracing::info!("build method called for production");
+            let output_dir = StaticFolder::build(paths).await?;
+            tracing::info!("Got output_dir from StaticFolder::build {:?}", output_dir);
+            let env_file_path = build_data.env_file_path(Some(&output_dir));
+            Self::load_env_vars(&env_file_path)?;
+            Ok(output_dir)
+        } else {
+            // development environment
+            tracing::info!("build method called for development");
+            let env_file_path = build_data.env_file_path(None);
+            Self::load_env_vars(&env_file_path)?;
+            Ok(env_file_path)
+        }
     }
 }
 
@@ -256,10 +284,11 @@ mod tests {
 
         // Call plugin
         let env_folder = EnvVars::new();
-        let actual_folder = env_folder.output(&mut factory).await.unwrap();
+        let resource_output = env_folder.output(&mut factory).await.unwrap();
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            actual_folder.folder,
+            output_folder,
             factory.storage_path().join(DEFAULT_FOLDER),
             "expect path to the env folder to be in the storage folder"
         );
@@ -293,9 +322,10 @@ mod tests {
         // Call plugin
         let env_folder = EnvVars::new().folder(ENV_FOLDER).env_prod(ENV_PROD_FILE);
         let resource_output = env_folder.output(&mut factory).await.unwrap();
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            resource_output.folder,
+            output_folder,
             factory.storage_path().join(ENV_FOLDER),
             "expect path to the env folder to be in the storage folder"
         );
@@ -333,9 +363,10 @@ mod tests {
             .output(&mut factory)
             .await
             .unwrap();
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert!(
-            resource_output.folder.as_os_str().is_empty(),
+            output_folder.as_os_str().is_empty(),
             "should return empty path"
         );
     }
@@ -358,10 +389,10 @@ mod tests {
             .env_local(local_env_path.to_str().unwrap());
 
         let resource_output = env_folder.output(&mut factory).await.unwrap();
-        let _ = EnvVars::build(&resource_output).await;
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            resource_output.folder, local_env_path,
+            output_folder, local_env_path,
             "should return local env path"
         );
         assert_eq!(
@@ -407,8 +438,10 @@ mod tests {
             .await
             .unwrap();
 
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
+
         assert!(
-            resource_output.folder.as_os_str().is_empty(),
+            output_folder.as_os_str().is_empty(),
             "should return empty path"
         );
     }
@@ -435,10 +468,10 @@ mod tests {
             .env_local(local_env_path.to_str().unwrap());
 
         let resource_output = env_folder.output(&mut factory).await.unwrap();
-        let _ = EnvVars::build(&resource_output).await;
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            resource_output.folder, local_env_path,
+            output_folder, local_env_path,
             "should return local env path"
         );
         assert_eq!(
@@ -487,9 +520,10 @@ mod tests {
         let _ = EnvVars::build(&resource_output).await;
 
         let expected_output_folder = factory.storage_path().join(ENV_FOLDER);
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            resource_output.folder, expected_output_folder,
+            output_folder, expected_output_folder,
             "should return storage folder"
         );
         assert_eq!(
@@ -522,9 +556,10 @@ mod tests {
         let _ = EnvVars::build(&resource_output).await;
 
         let expected_output_folder = factory.storage_path().join(DEFAULT_FOLDER);
+        let output_folder = EnvVars::build(&resource_output).await.unwrap();
 
         assert_eq!(
-            resource_output.folder, expected_output_folder,
+            output_folder, expected_output_folder,
             "should return storage folder"
         );
         assert_eq!(
