@@ -1,6 +1,6 @@
 [package]
 name = "shuttle-env-vars"
-version = "0.24.0"
+version = "0.25.0"
 edition = "2021"
 authors = ["Roberto Huertas <roberto.huertas@outlook.com>"]
 description = "Use .env files to set environment variables in your Shuttle services"
@@ -15,9 +15,9 @@ maintenance = { status = "actively-developed" }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-shuttle-runtime = "0.24.0"
-shuttle-service = "0.24.0"
-shuttle-static-folder = "0.24.0"
+shuttle-runtime = "0.25.0"
+shuttle-service = "0.25.0"
+shuttle-static-folder = "0.25.0"
 dotenvy = "0.15"
 serde = "1.0"
 tracing = "0.1"
