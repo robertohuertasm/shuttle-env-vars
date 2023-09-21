@@ -5,6 +5,8 @@
 [![crates.io](https://img.shields.io/crates/v/shuttle-env-vars?style=for-the-badge)](https://crates.io/crates/shuttle-env-vars)
 [![docs.rs](https://img.shields.io/docsrs/shuttle-env-vars?style=for-the-badge)](https://docs.rs/shuttle-env-vars)
 
+> **IMPORTANT**: This crate is DEPRECATED. See [Shuttle v0.27.0 release notes](https://github.com/shuttle-hq/shuttle/releases/tag/v0.27.0) for more details.
+
 A library to use `.env` files in your [Shuttle](https://shuttle.rs) projects.
 
 [Shuttle Secrets](https://docs.shuttle.rs/resources/shuttle-secrets) is ok, but sometimes you need to use environment variables so they can be used in other crates.
@@ -19,7 +21,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-shuttle-env-vars = "0.21.0"
+shuttle-env-vars = "0.26.0"
 ```
 
 Then create a `.env` file in the folder you want to use. Note that the name of the file can be anything.
